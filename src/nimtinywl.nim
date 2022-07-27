@@ -1,7 +1,6 @@
 import wlroots/[backend, render, types, util, xcursor, xwayland]
 import wayland
-from wayland/util import wlcontainerof
-import nimtinywl/xkbkeysyms
+import nimtinywl/xkbcommon
 
 
 
@@ -77,21 +76,29 @@ proc focusView(view: View, surface: ptr types.Surface) =
       if keyboard != nil:
         seat.keyboardNotifyEnter(view.xdgTopLevel.base.surface, keyboard.keycodes[0].addr, keyboard.numKeyCodes, keyboard.modifiers.addr)
 
-proc keyboardHandleModifiers(listener: WlListener, data: pointer) =
-  let keyboard = listener.wlcontainerOf(TinyKeyboard, modifiers)
+proc keyboardHandleModifiers(listener: ptr WlListener, data: pointer) =
+  let keyboard = listener.containerOf(TinyKeyboard, modifiers)
   keyboard.server.seat.setKeyboard(keyboard.keyboard)
   keyboard.server.seat.keyboardNotifyModifiers keyboard.keyboard.modifiers.addr
 
-proc handleKeyBinding(server: Server, sym: XkbKeySym): bool =
+proc handleKeyBinding(server: Server, sym: KeySym): bool =
   result = true
   case sym
   of XkbKeyEscape:
-      server.display[].terminate()
+      server.display.terminate()
   of XkbKeyF1:
     if server.views.len >= 2:
-      let nextView = wlContainerOf(server.views[].prev, nextView, link)
-      nextView.focusView nextView.xdgTopLevel.base.surface
+      let nextView = server.views[].prev.containerOf(View, link)
+      nextView[].focusView nextView.xdgTopLevel.base.surface
   else:
     result = false
 
-proc handleKey(listener: WlListener, data: pointer) =
+proc handleKey(listener: ptr WlListener, data: pointer) =
+  let
+    keyboard = listener.containerOf(TinyKeyboard, key)
+    server = keyboard.server
+    event = cast[ptr KeyboardEvents](data)
+    seat = server.seat
+    keycode = event.keycode + 8
+    nSyms = keyboard.keyboard.xk
+
