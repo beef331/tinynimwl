@@ -111,6 +111,9 @@ proc handleKey(listener: ptr WlListener, data: pointer) =
   if KeyboardModifier.Alt in modifiers and event.state == WlKeyboardKeyState.Pressed:
     for sym in cast[ptr UncheckedArray[XkbKeySym]](syms).toOpenArray(0, nSyms - 1):
       handled = handleKeyBinding(server, sym)
+  if not handled:
+    seat.setKeyboard(cast[ptr InputDevice](keyboard.keyboard))
+  seat.keyboardNotifyKey(event.timeMsec, event.keycode, uint32 event.state)
 
 proc handleDestroy(listener: ptr WlListener, data: pointer) =
   let keyboard = listener.containerOf(TinyKeyboard, destroy)
@@ -120,6 +123,13 @@ proc handleDestroy(listener: ptr WlListener, data: pointer) =
   remove keyboard.link.addr
   dealloc keyboard
 
-proc newKeyboard(server: Server, device: InputDevice) =
-  let wlrKeyboard = fromInput(device)
+proc newKeyboard(server: Server, device: ptr InputDevice) =
+  let
+    keyboard = create(TinyKeyboard)
+  keyboard.server = server
+  keyboard.keyboard = cast[ptr Keyboard](device)
+
+  let
+    context = newXkbContext(XkbContextFlags.NoFlags)
+    keymap = xkbMapNewFromNames(context, nil, XkbKeymapCompile.NoFlags)
 
