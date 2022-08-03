@@ -1,7 +1,6 @@
 import wlroots/[backend, render, types, util, xcursor, xwayland]
 import wayland
-import nimtinywl/xkbcommon
-
+import xkb
 
 
 type
@@ -35,7 +34,7 @@ type
     layout: ptr OutputLayoutOutput
 
   BaseObj {.pure, inheritable.} = object
-    link: ptr WlList
+    link: WlList
     server: Server
 
   Output = ptr object of BaseObj
@@ -69,8 +68,8 @@ proc focusView(view: View, surface: ptr types.Surface) =
 
       let keyboard = seat.getKeyboard()
       view.sceneTree.node.addr.raiseToTop()
-      view.link.remove()
-      server.views.insert view.link
+      view.link.addr.remove()
+      server.views.insert view.link.addr
       discard cast[ptr XdgSurface](view.xdgTopLevel).setActivatedTopLevel(true)
 
       if keyboard != nil:
@@ -78,16 +77,17 @@ proc focusView(view: View, surface: ptr types.Surface) =
 
 proc keyboardHandleModifiers(listener: ptr WlListener, data: pointer) =
   let keyboard = listener.containerOf(TinyKeyboard, modifiers)
-  keyboard.server.seat.setKeyboard(keyboard.keyboard)
+
+  keyboard.server.seat.setKeyboard(cast[ptr InputDevice](keyboard.keyboard))
   keyboard.server.seat.keyboardNotifyModifiers keyboard.keyboard.modifiers.addr
 
-proc handleKeyBinding(server: Server, sym: KeySym): bool =
+proc handleKeyBinding(server: Server, sym: uint32): bool =
   result = true
   case sym
   of XkbKeyEscape:
       server.display.terminate()
   of XkbKeyF1:
-    if server.views.len >= 2:
+    if server.views.length >= 2:
       let nextView = server.views[].prev.containerOf(View, link)
       nextView[].focusView nextView.xdgTopLevel.base.surface
   else:
@@ -97,8 +97,29 @@ proc handleKey(listener: ptr WlListener, data: pointer) =
   let
     keyboard = listener.containerOf(TinyKeyboard, key)
     server = keyboard.server
-    event = cast[ptr KeyboardEvents](data)
+    event = cast[ptr EventKeyboardKey](data)
     seat = server.seat
     keycode = event.keycode + 8
-    nSyms = keyboard.keyboard.xk
+  var
+    syms: ptr XkbKeySym
+    nSyms = keyboard.keyboard.xkbState.getSyms(keycode, syms.addr)
+
+
+  var
+    handled = false
+    modifiers = cast[set[KeyboardModifier]](keyboard.keyboard.getModifiers())
+  if KeyboardModifier.Alt in modifiers and event.state == WlKeyboardKeyState.Pressed:
+    for sym in cast[ptr UncheckedArray[XkbKeySym]](syms).toOpenArray(0, nSyms - 1):
+      handled = handleKeyBinding(server, sym)
+
+proc handleDestroy(listener: ptr WlListener, data: pointer) =
+  let keyboard = listener.containerOf(TinyKeyboard, destroy)
+  remove keyboard.modifiers.link.addr
+  remove keyboard.key.link.addr
+  remove keyboard.destroy.link.addr
+  remove keyboard.link.addr
+  dealloc keyboard
+
+proc newKeyboard(server: Server, device: InputDevice) =
+  let wlrKeyboard = fromInput(device)
 
